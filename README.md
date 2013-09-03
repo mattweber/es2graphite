@@ -8,10 +8,10 @@ each server.
 ### metrics
 
 * node stats
+* indices stats
 * indices status
-* indices segments status
-* indices stats (including shards)
-* cluster health (including shards)
+* cluster health
+* segments status
 
 ### notes
 
@@ -29,11 +29,12 @@ each server.
     * 2 = started
     * 3 = relocated
     * 4 = closed
-* the graphite pickle protocol is used, make sure it is enabled
+* metrics are sent to graphite via the pickle protocol
 
 ```
 usage: es2graphite.py [-h] [-p PREFIX] [-g GRAPHITE_HOST] [-o GRAPHITE_PORT]
-                      [-i INTERVAL]
+                      [-i INTERVAL] [--health-level {cluster,indices,shards}]
+                      [--shard-stats] [--segments] [-d] [-v]
                       ES_HOST [ES_HOST ...]
 
 Send elasticsearch metrics to graphite
@@ -51,4 +52,10 @@ optional arguments:
                         graphite pickle protocol port. Default: 2004
   -i INTERVAL, --interval INTERVAL
                         interval in seconds. Default: 60
+  --health-level {cluster,indices,shards}
+                        The level of health metrics. Default: indices
+  --shard-stats         Collect shard level stats metrics.
+  --segments            Collect low-level segment metrics.
+  -d, --debug           Print metrics, don't send to graphite
+  -v, --verbose         Verbose output
 ```
