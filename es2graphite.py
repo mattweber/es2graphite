@@ -139,7 +139,7 @@ def submit_to_graphite(metrics):
                 header = struct.pack('!L', len(payload))
                 graphite_socket['socket'].connect( ( graphite_socket['host'], graphite_socket['port'] ) )
                 graphite_socket['socket'].sendall( "%s%s" % (header, payload) )
-                socket.close()
+                graphite_socket['socket'].close()
             except socket.error, serr:
                 logging.debug('Communication to Graphite server failed: ' + str(serr))
     elif args.protocol == 'plaintext':
@@ -152,7 +152,7 @@ def submit_to_graphite(metrics):
                 try:
                     graphite_socket['socket'].connect( ( graphite_socket['host'], int( graphite_socket['port'] ) ) )
                     graphite_socket['socket'].send( "%s\n" % metric_string )
-                    socket.close()
+                    graphite_socket['socket'].close()
                 except socket.error, serr:
                     logging.debug('Communicartion to Graphite server failed: ' + str(serr))
     else:
