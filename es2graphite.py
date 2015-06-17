@@ -8,7 +8,9 @@ import struct
 import logging
 import logging.handlers
 import time
+import traceback
 import socket
+import urllib
 import urllib2
 import argparse
 from datetime import datetime
@@ -154,7 +156,7 @@ def submit_to_graphite(metrics):
                     graphite_socket['socket'].send( "%s\n" % metric_string )
                     graphite_socket['socket'].close()
                 except socket.error, serr:
-                    logging.debug('Communicartion to Graphite server failed: ' + str(serr))
+                    logging.error('Communicartion to Graphite server failed: ' + str(serr))
     else:
         logging.error('Unsupported Protocol.')
         sys.exit(1)
@@ -223,7 +225,11 @@ if __name__ == '__main__':
     root_logger.setLevel(loglevel[args.log_level])
 
     while True:
-        if args.dry_run:
-            logging.warn('Metric not Submitted. Processing as a Dry Run.')
-        get_metrics()
-        time.sleep(args.interval)
+        try:
+            if args.dry_run:
+                logging.warn('Metric not Submitted. Processing as a Dry Run.')
+            get_metrics()
+            time.sleep(args.interval)
+        except Exception, e:
+            logging.error(urllib.quote_plus(traceback.format_exc()))
+            sys.exit(1)
