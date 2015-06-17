@@ -3,14 +3,14 @@
 import re
 import sys
 import json
-import time
 import pickle
 import struct
+import logging
+import logging.handlers
+import time
 import socket
-import thread
 import urllib2
 import argparse
-from pprint import pprint
 from datetime import datetime
 
 NODES = {}
@@ -18,10 +18,23 @@ CLUSTER_NAME = ''
 STATUS = {'red': 0, 'yellow': 1, 'green': 2}
 SHARD_STATE = {'CREATED': 0, 'RECOVERING': 1, 'STARTED': 2, 'RELOCATED': 3, 'CLOSED': 4}
 HOST_IDX = -1
+LOG_FILENAME = 'es2graphite.log'
+LOG_PATH = '.'
+loglevel = {    'info': logging.INFO,
+                'warn': logging.WARN,
+                'error': logging.ERROR,
+                'debug': logging.DEBUG
+            }
+
+root_logger = logging.getLogger()
+file_handler = logging.handlers.RotatingFileHandler("{0}/{1}".format(LOG_PATH, LOG_FILENAME), 
+                                                    maxBytes=100000000, 
+                                                    backupCount=5)
+root_logger.addHandler(file_handler)
+
 
 def log(what, force=False):
-    if args.verbose or force:
-        pprint(what)
+    logging.info(what)
 
 def get_es_host():
     global HOST_IDX
@@ -110,40 +123,58 @@ def process_section(timestamp, metrics, prefix, section):
         else:
             add_metric(metrics, prefix, stat, stat_val, timestamp)
 
-def send_to_graphite(metrics):
-    if args.debug:
-        for m, mval  in metrics:
-            log('%s %s = %s' % (mval[0], m, mval[1]), True)
+def submit_to_graphite(metrics):
+    graphite_socket = {'socket': socket.socket( socket.AF_INET, socket.SOCK_STREAM ), 
+                       'host': args.graphite_host, 
+                       'port': int(args.graphite_port)}
+
+
+    if args.protocol == 'pickle':
+        if args.dry_run:
+            for m, mval  in metrics:
+                log('%s %s = %s' % (mval[0], m, mval[1]), True)
+        else:
+            try:
+                payload = pickle.dumps(metrics)
+                header = struct.pack('!L', len(payload))
+                graphite_socket['socket'].connect( ( graphite_socket['host'], graphite_socket['port'] ) )
+                graphite_socket['socket'].sendall( "%s%s" % (header, payload) )
+                socket.close()
+            except socket.error, serr:
+                logging.debug('Communication to Graphite server failed: ' + str(serr))
+    elif args.protocol == 'plaintext':
+        for metric_name, metric_list in metrics:
+            metric_string = "%s %s %d" % ( metric_name, metric_list[1], metric_list[0])
+            logging.debug('Metric String: ' + metric_string)
+            if args.dry_run:
+                pass
+            else:
+                try:
+                    graphite_socket['socket'].connect( ( graphite_socket['host'], int( graphite_socket['port'] ) ) )
+                    graphite_socket['socket'].send( "%s\n" % metric_string )
+                    socket.close()
+                except socket.error, serr:
+                    logging.debug('Communicartion to Graphite server failed: ' + str(serr))
     else:
-        payload = pickle.dumps(metrics)
-        header = struct.pack('!L', len(payload))
-        sock = socket.socket()
-        sock.connect((args.graphite_host, args.graphite_port))
-        sock.sendall('%s%s' % (header, payload))
-        sock.close()
+        logging.error('Unsupported Protocol.')
+        sys.exit(1)
+
  
 def get_metrics():
     dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    node_stats_url = 'http://%s/_cluster/nodes/stats?all=true' % get_es_host()
+    node_stats_url = 'http://%s/_nodes?all=true' % get_es_host()
     log('%s: GET %s' % (dt, node_stats_url))
     node_stats_data = urllib2.urlopen(node_stats_url).read()
     node_stats = json.loads(node_stats_data)
     node_stats_metrics = process_node_stats(args.prefix, node_stats)
-    send_to_graphite(node_stats_metrics)
+    submit_to_graphite(node_stats_metrics)
  
     cluster_health_url = 'http://%s/_cluster/health?level=%s' % (get_es_host(), args.health_level)
     log('%s: GET %s' % (dt, cluster_health_url))
     cluster_health_data = urllib2.urlopen(cluster_health_url).read()
     cluster_health = json.loads(cluster_health_data)
     cluster_health_metrics = process_cluster_health(args.prefix, cluster_health)
-    send_to_graphite(cluster_health_metrics)
-
-    indices_status_url = 'http://%s/_status' % get_es_host()
-    log('%s: GET %s' % (dt, indices_status_url))
-    indices_status_data = urllib2.urlopen(indices_status_url).read()
-    indices_status = json.loads(indices_status_data)
-    indices_status_metrics = process_indices_status(args.prefix, indices_status)
-    send_to_graphite(indices_status_metrics)
+    submit_to_graphite(cluster_health_metrics)
 
     indices_stats_url = 'http://%s/_stats?all=true' % get_es_host()
     if args.shard_stats:
@@ -152,7 +183,7 @@ def get_metrics():
     indices_stats_data = urllib2.urlopen(indices_stats_url).read()
     indices_stats = json.loads(indices_stats_data)
     indices_stats_metrics = process_indices_stats(args.prefix, indices_stats)
-    send_to_graphite(indices_stats_metrics)
+    submit_to_graphite(indices_stats_metrics)
    
     if args.segments:
         segments_status_url = 'http://%s/_segments' % get_es_host()
@@ -160,21 +191,39 @@ def get_metrics():
         segments_status_data = urllib2.urlopen(segments_status_url).read()
         segments_status = json.loads(segments_status_data)
         segments_status_metrics = process_segments_status(args.prefix, segments_status)
-        send_to_graphite(segments_status_metrics)
+        submit_to_graphite(segments_status_metrics)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Send elasticsearch metrics to graphite')
     parser.add_argument('-p', '--prefix', default='es', help='graphite metric prefix. Default: %(default)s')
     parser.add_argument('-g', '--graphite-host', default='localhost', help='graphite hostname. Default: %(default)s')
-    parser.add_argument('-o', '--graphite-port', default=2004, type=int, help='graphite pickle protocol port. Default: %(default)s')
+    parser.add_argument('-o', '--graphite-port', default=2004, type=int, help='graphite port. Default: %(default)s')
     parser.add_argument('-i', '--interval', default=60, type=int, help='interval in seconds. Default: %(default)s')
     parser.add_argument('--health-level', choices=['cluster', 'indices', 'shards'], default='indices', help='The level of health metrics. Default: %(default)s')
-    parser.add_argument('--shard-stats', action='store_true', help='Collect shard level stats metrics.')
-    parser.add_argument('--segments', action='store_true', help='Collect low-level segment metrics.')
-    parser.add_argument('-d', '--debug', action='store_true', help='Print metrics, don\'t send to graphite')
-    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
+    parser.add_argument('--log-level', choices=['info', 'warn', 'error', 'debug'], default='warn', help='The logging level. Default: %(default)s')
+    parser.add_argument('--protocol', choices=['plaintext', 'pickle'], default='pickle', help='The graphite submission protocol. Default: %(default)s')
+    parser.add_argument('--stdout', action='store_true', help='output logging to stdout. Default: %(default)s')
+    parser.add_argument('--shard-stats', action='store_true', help='Collect shard level stats metrics. Default: %(default)s')
+    parser.add_argument('--segments', action='store_true', help='Collect low-level segment metrics. Default: %(default)s')
+    parser.add_argument('-d', '--dry-run', action='store_true', help='Print metrics, don\'t send to graphite. Default: %(default)s')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output. Default: %(default)s')
     parser.add_argument('es', nargs='+', help='elasticsearch host:port', metavar='ES_HOST')
     args = parser.parse_args()
+
+
+    logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s] [%(levelname)-8.8s]  %(message)s")
+    if args.log_level.lower() == 'debug':
+        logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s %(filename)-20.20s:%(funcName)-5.5s:%(lineno)-3d] [%(levelname)-8.8s]  %(message)s")
+    if args.stdout:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logFormatter)
+        root_logger.addHandler(stream_handler)
+
+    file_handler.setFormatter(logFormatter)
+    root_logger.setLevel(loglevel[args.log_level])
+
     while True:
-        thread.start_new_thread(get_metrics, ())
+        if args.dry_run:
+            logging.warn('Metric not Submitted. Processing as a Dry Run.')
+        get_metrics()
         time.sleep(args.interval)
