@@ -8,7 +8,9 @@ import struct
 import logging
 import logging.handlers
 import time
+import traceback
 import socket
+import urllib
 import urllib2
 import argparse
 from datetime import datetime
@@ -127,6 +129,7 @@ def submit_to_graphite(metrics):
     graphite_socket = {'socket': socket.socket( socket.AF_INET, socket.SOCK_STREAM ), 
                        'host': args.graphite_host, 
                        'port': int(args.graphite_port)}
+    graphite_socket['socket'].connect( ( graphite_socket['host'], graphite_socket['port'] ) )
 
 
     if args.protocol == 'pickle':
@@ -137,27 +140,25 @@ def submit_to_graphite(metrics):
             try:
                 payload = pickle.dumps(metrics)
                 header = struct.pack('!L', len(payload))
-                graphite_socket['socket'].connect( ( graphite_socket['host'], graphite_socket['port'] ) )
                 graphite_socket['socket'].sendall( "%s%s" % (header, payload) )
-                socket.close()
             except socket.error, serr:
-                logging.debug('Communication to Graphite server failed: ' + str(serr))
+                logging.error('Communication to Graphite server failed: ' + str(serr))
+                logging.debug(urllib.quote_plus(traceback.format_exc()))
     elif args.protocol == 'plaintext':
         for metric_name, metric_list in metrics:
             metric_string = "%s %s %d" % ( metric_name, metric_list[1], metric_list[0])
-            logging.debug('Metric String: ' + metric_string)
             if args.dry_run:
-                pass
+                logging.info('Metric String: ' + metric_string)
             else:
                 try:
-                    graphite_socket['socket'].connect( ( graphite_socket['host'], int( graphite_socket['port'] ) ) )
                     graphite_socket['socket'].send( "%s\n" % metric_string )
-                    socket.close()
                 except socket.error, serr:
-                    logging.debug('Communicartion to Graphite server failed: ' + str(serr))
+                    logging.error('Communicartion to Graphite server failed: ' + str(serr))
+                    logging.debug(urllib.quote_plus(traceback.format_exc()))
     else:
         logging.error('Unsupported Protocol.')
         sys.exit(1)
+    graphite_socket['socket'].close()
 
  
 def get_metrics():
@@ -215,7 +216,7 @@ if __name__ == '__main__':
     if args.log_level.lower() == 'debug':
         logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s %(filename)-20.20s:%(funcName)-5.5s:%(lineno)-3d] [%(levelname)-8.8s]  %(message)s")
     if args.stdout:
-        stream_handler = logging.StreamHandler()
+        stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(logFormatter)
         root_logger.addHandler(stream_handler)
 
@@ -223,7 +224,11 @@ if __name__ == '__main__':
     root_logger.setLevel(loglevel[args.log_level])
 
     while True:
-        if args.dry_run:
-            logging.warn('Metric not Submitted. Processing as a Dry Run.')
-        get_metrics()
-        time.sleep(args.interval)
+        try:
+            if args.dry_run:
+                logging.warn('Metric not Submitted. Processing as a Dry Run.')
+            get_metrics()
+            time.sleep(args.interval)
+        except Exception, e:
+            logging.error(urllib.quote_plus(traceback.format_exc()))
+            sys.exit(1)
