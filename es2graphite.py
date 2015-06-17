@@ -144,6 +144,7 @@ def submit_to_graphite(metrics):
                 logging.debug('Communication to Graphite server failed: ' + str(serr))
     elif args.protocol == 'plaintext':
         for metric_name, metric_list in metrics:
+            metric_string = "%s %s %d" % ( metric_name, metric_list[1], metric_list[0])
             logging.debug('Metric String: ' + metric_string)
             if args.dry_run:
                 pass
