@@ -1,15 +1,11 @@
 #!/usr/bin/env python
 
 import re
-import sys
 import json
 import logging
 import logging.handlers
 import time
-import pickle
-import struct
 import socket
-import thread
 import urllib2
 import argparse
 from datetime import datetime
@@ -183,7 +179,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Send elasticsearch metrics to graphite')
     parser.add_argument('-p', '--prefix', default='es', help='graphite metric prefix. Default: %(default)s')
     parser.add_argument('-g', '--graphite-host', default='localhost', help='graphite hostname. Default: %(default)s')
-    parser.add_argument('-o', '--graphite-port', default=2004, type=int, help='graphite pickle protocol port. Default: %(default)s')
+    parser.add_argument('-o', '--graphite-port', default=2003, type=int, help='graphite plaintext protocol port. Default: %(default)s')
     parser.add_argument('-i', '--interval', default=60, type=int, help='interval in seconds. Default: %(default)s')
     parser.add_argument('--health-level', choices=['cluster', 'indices', 'shards'], default='indices', help='The level of health metrics. Default: %(default)s')
     parser.add_argument('--log-level', choices=['info', 'warn', 'error', 'debug'], default='warn', help='The logging level. Default: %(default)s')
