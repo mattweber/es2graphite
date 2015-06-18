@@ -87,7 +87,8 @@ def process_indices_status(prefix, status):
 def process_indices_stats(prefix, stats):
     metrics = []
     process_section(int(time.time()), metrics, (prefix, CLUSTER_NAME, 'indices', '_all'), stats['_all'])
-    process_section(int(time.time()), metrics, (prefix, CLUSTER_NAME, 'indices'), stats['indices'])
+    if args.health_level != 'cluster':
+        process_section(int(time.time()), metrics, (prefix, CLUSTER_NAME, 'indices'), stats['indices'])
     return metrics
     
 def process_segments_status(prefix, status):
@@ -180,6 +181,8 @@ def get_metrics():
     indices_stats_url = 'http://%s/_stats?all=true' % get_es_host()
     if args.shard_stats:
         indices_stats_url = '%s&level=shards' % indices_stats_url
+    elif args.health_level == 'cluster':
+        indices_stats_url = '%s&level=cluster' % indices_stats_url
     log('%s: GET %s' % (dt, indices_stats_url))
     indices_stats_data = urllib2.urlopen(indices_stats_url).read()
     indices_stats = json.loads(indices_stats_data)
@@ -231,4 +234,3 @@ if __name__ == '__main__':
             time.sleep(args.interval)
         except Exception, e:
             logging.error(urllib.quote_plus(traceback.format_exc()))
-            sys.exit(1)
