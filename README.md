@@ -33,7 +33,8 @@ each server.
 
 ```
 usage: es2graphite.py [-h] [-p PREFIX] [-g GRAPHITE_HOST] [-o GRAPHITE_PORT]
-                      [-i INTERVAL] [--health-level {cluster,indices,shards}]
+                      [-i INTERVAL] [-l LOG_FILE]
+                      [--health-level {cluster,indices,shards}]
                       [--log-level {info,warn,error,debug}]
                       [--protocol {plaintext,pickle}] [--stdout]
                       [--shard-stats] [--segments] [-d] [-v]
@@ -54,6 +55,8 @@ optional arguments:
                         graphite port. Default: 2004
   -i INTERVAL, --interval INTERVAL
                         interval in seconds. Default: 60
+  -l LOG_FILE, --log-file LOG_FILE
+                        full path to the log file. Default: ./es2graphite.log
   --health-level {cluster,indices,shards}
                         The level of health metrics. Default: indices
   --log-level {info,warn,error,debug}
