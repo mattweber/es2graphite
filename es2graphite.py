@@ -180,6 +180,8 @@ def get_metrics():
     indices_stats_url = 'http://%s/_stats?all=true' % get_es_host()
     if args.shard_stats:
         indices_stats_url = '%s&level=shards' % indices_stats_url
+    elif args.health-level == 'cluster':
+        indices_stats_url = '%s&level=cluster' % indices_stats_url
     log('%s: GET %s' % (dt, indices_stats_url))
     indices_stats_data = urllib2.urlopen(indices_stats_url).read()
     indices_stats = json.loads(indices_stats_data)
@@ -231,4 +233,3 @@ if __name__ == '__main__':
             time.sleep(args.interval)
         except Exception, e:
             logging.error(urllib.quote_plus(traceback.format_exc()))
-            sys.exit(1)
