@@ -87,7 +87,8 @@ def process_indices_status(prefix, status):
 def process_indices_stats(prefix, stats):
     metrics = []
     process_section(int(time.time()), metrics, (prefix, CLUSTER_NAME, 'indices', '_all'), stats['_all'])
-    process_section(int(time.time()), metrics, (prefix, CLUSTER_NAME, 'indices'), stats['indices'])
+    if args.health_level != 'cluster':
+        process_section(int(time.time()), metrics, (prefix, CLUSTER_NAME, 'indices'), stats['indices'])
     return metrics
     
 def process_segments_status(prefix, status):
