@@ -20,19 +20,12 @@ CLUSTER_NAME = ''
 STATUS = {'red': 0, 'yellow': 1, 'green': 2}
 SHARD_STATE = {'CREATED': 0, 'RECOVERING': 1, 'STARTED': 2, 'RELOCATED': 3, 'CLOSED': 4}
 HOST_IDX = -1
-LOG_FILENAME = 'es2graphite.log'
-LOG_PATH = '.'
 loglevel = {    'info': logging.INFO,
                 'warn': logging.WARN,
                 'error': logging.ERROR,
                 'debug': logging.DEBUG
             }
 
-root_logger = logging.getLogger()
-file_handler = logging.handlers.RotatingFileHandler("{0}/{1}".format(LOG_PATH, LOG_FILENAME), 
-                                                    maxBytes=100000000, 
-                                                    backupCount=5)
-root_logger.addHandler(file_handler)
 
 
 def log(what, force=False):
@@ -203,6 +196,7 @@ if __name__ == '__main__':
     parser.add_argument('-g', '--graphite-host', default='localhost', help='graphite hostname. Default: %(default)s')
     parser.add_argument('-o', '--graphite-port', default=2004, type=int, help='graphite port. Default: %(default)s')
     parser.add_argument('-i', '--interval', default=60, type=int, help='interval in seconds. Default: %(default)s')
+    parser.add_argument('-l', '--log-file', default='./es2graphite.log', type=str, help='full path to the log file. Default: %(default)s')
     parser.add_argument('--health-level', choices=['cluster', 'indices', 'shards'], default='indices', help='The level of health metrics. Default: %(default)s')
     parser.add_argument('--log-level', choices=['info', 'warn', 'error', 'debug'], default='warn', help='The logging level. Default: %(default)s')
     parser.add_argument('--protocol', choices=['plaintext', 'pickle'], default='pickle', help='The graphite submission protocol. Default: %(default)s')
@@ -215,6 +209,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
+    root_logger = logging.getLogger()
+    file_handler = logging.handlers.RotatingFileHandler("{0}".format(args.log_file), 
+                                                        maxBytes=100000000, 
+                                                        backupCount=5)
+    root_logger.addHandler(file_handler)
     logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s] [%(levelname)-8.8s]  %(message)s")
     if args.log_level.lower() == 'debug':
         logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s %(filename)-20.20s:%(funcName)-5.5s:%(lineno)-3d] [%(levelname)-8.8s]  %(message)s")
