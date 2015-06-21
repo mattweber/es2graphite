@@ -8,6 +8,7 @@ each server.
 ### metrics
 
 * node stats
+* node disk allocation
 * indices stats
 * indices status
 * cluster health
