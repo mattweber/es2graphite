@@ -47,20 +47,19 @@ def normalize(what):
 def add_metric(metrics, prefix, metric_path, stat, val, timestamp):
     if isinstance(val, bool):
         val = int(val)
+    if isinstance(val, (str, unicode)):
+        try:
+            val = int(val)
+        except ValueError:
+            pass
 
     if prefix[-1] == 'translog' and stat == 'id':
         return
     elif isinstance(val, (int, long, float)) and stat != 'timestamp':
-        #metrics.append((prefix + '.' + normalize((stat)), (timestamp, val)))
-        logging.debug(prefix + '.' + normalize((metric_path, stat)))
         metrics.append((prefix + '.' + normalize((metric_path, stat)), (timestamp, val)))
     elif stat == 'status' and val in STATUS:
-        #metrics.append((prefix + '.' + normalize((stat)), (timestamp, STATUS[val])))
-        logging.debug(prefix + '.' + normalize((metric_path, stat)))
         metrics.append((prefix + '.' + normalize((metric_path, stat)), (timestamp, STATUS[val])))
     elif stat == 'state' and val in SHARD_STATE:
-        #metrics.append((prefix + '.' + normalize((stat)), (timestamp, SHARD_STATE[val])))
-        logging.debug(prefix + '.' + normalize((metric_path, stat)))
         metrics.append((prefix + '.' + normalize((metric_path, stat)), (timestamp, SHARD_STATE[val])))
         
 def process_node_stats(prefix, stats):
@@ -71,6 +70,15 @@ def process_node_stats(prefix, stats):
         node_stats = stats['nodes'][node_id]
         NODES[node_id] = node_stats['name']
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, NODES[node_id]), node_stats)
+    return metrics
+
+def process_node_allocation(prefix, allocation, cluster_name):
+    metrics = []
+    for node_idx in range(len(allocation)):
+        node_allocation = allocation[node_idx]
+        node_name = node_allocation['node']
+        node_allocation = {key: node_allocation[key] for key in node_allocation if key not in ['node', 'host', 'ip']}
+        process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'disk'), node_allocation)
     return metrics
 
 def process_cluster_health(prefix, health):
@@ -169,6 +177,13 @@ def get_metrics():
     node_stats = json.loads(node_stats_data)
     node_stats_metrics = process_node_stats(args.prefix, node_stats)
     submit_to_graphite(node_stats_metrics)
+
+    node_allocation_url = 'http://%s/_cat/allocation?format=json&bytes=b' % get_es_host()
+    log('%s: GET %s' % (dt, node_allocation_url))
+    node_allocation_data = urllib2.urlopen(node_allocation_url).read()
+    node_allocation = json.loads(node_allocation_data)
+    node_allocation_metrics = process_node_allocation(args.prefix, node_allocation, node_stats['cluster_name'])
+    submit_to_graphite(node_allocation_metrics)
  
     cluster_health_url = 'http://%s/_cluster/health?level=%s' % (get_es_host(), args.health_level)
     log('%s: GET %s' % (dt, cluster_health_url))
