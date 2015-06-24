@@ -51,7 +51,10 @@ def add_metric(metrics, prefix, metric_path, stat, val, timestamp):
         try:
             val = int(val)
         except ValueError:
-            pass
+            try:
+                val = float(val)
+            except ValueError:
+                logging.debug('add_metric: Unable to convert to integer')
 
     if prefix[-1] == 'translog' and stat == 'id':
         return
@@ -72,13 +75,31 @@ def process_node_stats(prefix, stats):
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, NODES[node_id]), node_stats)
     return metrics
 
-def process_node_allocation(prefix, allocation, cluster_name):
+def process_node_disk_allocation(prefix, allocation, cluster_name):
     metrics = []
     for node_idx in range(len(allocation)):
         node_allocation = allocation[node_idx]
         node_name = node_allocation['node']
         node_allocation = {key: node_allocation[key] for key in node_allocation if key not in ['node', 'host', 'ip']}
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'disk'), node_allocation)
+    return metrics
+
+def process_node_memory_allocation(prefix, allocation, cluster_name):
+    metrics = []
+    for node_idx in range(len(allocation)):
+        node_allocation = allocation[node_idx]
+        node_name = node_allocation['name']
+        node_allocation = {key: node_allocation[key] for key in node_allocation if key not in ['name']}
+        process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'memory'), node_allocation)
+    return metrics
+
+def process_node_load(prefix, load, cluster_name):
+    metrics = []
+    for node_idx in range(len(load)):
+        node_load = load[node_idx]
+        node_name = node_load['name']
+        node_load = {key: node_load[key] for key in node_load if key not in ['name']}
+        process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'os'), node_load)
     return metrics
 
 def process_cluster_health(prefix, health):
@@ -178,12 +199,26 @@ def get_metrics():
     node_stats_metrics = process_node_stats(args.prefix, node_stats)
     submit_to_graphite(node_stats_metrics)
 
-    node_allocation_url = 'http://%s/_cat/allocation?format=json&bytes=b' % get_es_host()
-    log('%s: GET %s' % (dt, node_allocation_url))
-    node_allocation_data = urllib2.urlopen(node_allocation_url).read()
-    node_allocation = json.loads(node_allocation_data)
-    node_allocation_metrics = process_node_allocation(args.prefix, node_allocation, node_stats['cluster_name'])
-    submit_to_graphite(node_allocation_metrics)
+    node_disk_allocation_url = 'http://%s/_cat/allocation?format=json&bytes=b' % get_es_host()
+    log('%s: GET %s' % (dt, node_disk_allocation_url))
+    node_disk_allocation_data = urllib2.urlopen(node_disk_allocation_url).read()
+    node_disk_allocation = json.loads(node_disk_allocation_data)
+    node_disk_allocation_metrics = process_node_disk_allocation(args.prefix, node_disk_allocation, node_stats['cluster_name'])
+    submit_to_graphite(node_disk_allocation_metrics)
+
+    node_memory_allocation_url = 'http://%s/_cat/nodes?format=json&bytes=b&h=heapPercent,heapMax,ramPercent,ramMax,name' % get_es_host()
+    log('%s: GET %s' % (dt, node_memory_allocation_url))
+    node_memory_allocation_data = urllib2.urlopen(node_memory_allocation_url).read()
+    node_memory_allocation = json.loads(node_memory_allocation_data)
+    node_memory_allocation_metrics = process_node_memory_allocation(args.prefix, node_memory_allocation, node_stats['cluster_name'])
+    submit_to_graphite(node_memory_allocation_metrics)
+
+    node_load_url = 'http://%s/_cat/nodes?format=json&bytes=b&h=load,name' % get_es_host()
+    log('%s: GET %s' % (dt, node_load_url))
+    node_load_data = urllib2.urlopen(node_load_url).read()
+    node_load = json.loads(node_load_data)
+    node_load_metrics = process_node_load(args.prefix, node_load, node_stats['cluster_name'])
+    submit_to_graphite(node_load_metrics)
  
     cluster_health_url = 'http://%s/_cluster/health?level=%s' % (get_es_host(), args.health_level)
     log('%s: GET %s' % (dt, cluster_health_url))
