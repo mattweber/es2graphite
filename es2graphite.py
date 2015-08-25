@@ -155,10 +155,11 @@ def process_section(timestamp, metrics, prefix, metric_path, section):
             add_metric(metrics, prefix, metric_path, stat, stat_val, timestamp)
 
 def submit_to_graphite(metrics):
-    graphite_socket = {'socket': socket.socket( socket.AF_INET, socket.SOCK_STREAM ), 
-                       'host': args.graphite_host, 
-                       'port': int(args.graphite_port)}
-    graphite_socket['socket'].connect( ( graphite_socket['host'], graphite_socket['port'] ) )
+    if not args.dry_run:
+        graphite_socket = {'socket': socket.socket( socket.AF_INET, socket.SOCK_STREAM ), 
+                           'host': args.graphite_host, 
+                           'port': int(args.graphite_port)}
+        graphite_socket['socket'].connect( ( graphite_socket['host'], graphite_socket['port'] ) )
 
 
     if args.protocol == 'pickle':
@@ -187,7 +188,8 @@ def submit_to_graphite(metrics):
     else:
         logging.error('Unsupported Protocol.')
         sys.exit(1)
-    graphite_socket['socket'].close()
+    if not args.dry_run:
+        graphite_socket['socket'].close()
 
  
 def get_metrics():
@@ -285,7 +287,10 @@ if __name__ == '__main__':
         try:
             if args.dry_run:
                 logging.warn('Metric not Submitted. Processing as a Dry Run.')
-            get_metrics()
-            time.sleep(args.interval)
+                get_metrics()
+                sys.exit()
+            else:
+                get_metrics()
+                time.sleep(args.interval)
         except Exception, e:
             logging.error(urllib.quote_plus(traceback.format_exc()))
