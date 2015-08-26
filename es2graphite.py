@@ -268,10 +268,6 @@ if __name__ == '__main__':
 
 
     root_logger = logging.getLogger()
-    file_handler = logging.handlers.RotatingFileHandler("{0}".format(args.log_file), 
-                                                        maxBytes=100000000, 
-                                                        backupCount=5)
-    root_logger.addHandler(file_handler)
     logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s] [%(levelname)-8.8s]  %(message)s")
     if args.log_level.lower() == 'debug':
         logFormatter = logging.Formatter("%(asctime)s [%(threadName)-5.12s %(filename)-20.20s:%(funcName)-5.5s:%(lineno)-3d] [%(levelname)-8.8s]  %(message)s")
@@ -279,6 +275,11 @@ if __name__ == '__main__':
         stream_handler = logging.StreamHandler(sys.stdout)
         stream_handler.setFormatter(logFormatter)
         root_logger.addHandler(stream_handler)
+    else:
+        file_handler = logging.handlers.RotatingFileHandler("{0}".format(args.log_file), 
+                                                            maxBytes=100000000, 
+                                                            backupCount=5)
+        root_logger.addHandler(file_handler)
 
     file_handler.setFormatter(logFormatter)
     root_logger.setLevel(loglevel[args.log_level])
