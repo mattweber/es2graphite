@@ -280,8 +280,8 @@ if __name__ == '__main__':
                                                             maxBytes=100000000, 
                                                             backupCount=5)
         root_logger.addHandler(file_handler)
+        file_handler.setFormatter(logFormatter)
 
-    file_handler.setFormatter(logFormatter)
     root_logger.setLevel(loglevel[args.log_level])
 
     while True:
