@@ -33,7 +33,7 @@ def timeit(method):
         ts = time.time()
         result = method(*args, **kw)
         te = time.time()
-        logging.info( '%r %2.2f sec' % \
+        logging.debug( '%r %2.2f sec' % \
               (method.__name__, te-ts))
         return result
     return timed
