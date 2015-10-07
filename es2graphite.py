@@ -28,6 +28,26 @@ loglevel = {    'info': logging.INFO,
 
 
 
+def timeit(method):
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        logging.info( '%r %2.2f sec' % \
+              (method.__name__, te-ts))
+        return result
+    return timed
+
+def timeit_detailed(method):
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        logging.debug( '%r (%r, %r) %2.2f sec' % \
+             (method.__name__, args, kw, te-ts))
+        return result
+    return timed
+
 def log(what, force=False):
     logging.info(what)
 
@@ -36,6 +56,7 @@ def get_es_host():
     HOST_IDX = (HOST_IDX + 1) % len(args.es) # round-robin
     return args.es[HOST_IDX]
 
+@timeit
 def normalize(what):
     if not isinstance(what, (list, tuple)):
         return re.sub('\W+', '_',  what.strip().lower()).encode('utf-8')
@@ -44,6 +65,7 @@ def normalize(what):
     else:
         return '%s.%s' % (normalize(what[0]), normalize(what[1:]))
 
+@timeit
 def add_metric(metrics, prefix, metric_path, stat, val, timestamp):
     if isinstance(val, bool):
         val = int(val)
@@ -65,16 +87,15 @@ def add_metric(metrics, prefix, metric_path, stat, val, timestamp):
     elif stat == 'state' and val in SHARD_STATE:
         metrics.append((prefix + '.' + normalize((metric_path, stat)), (timestamp, SHARD_STATE[val])))
         
-def process_node_stats(prefix, stats):
+@timeit
+def process_cluster_health(prefix, health):
     metrics = []
     global CLUSTER_NAME
-    CLUSTER_NAME = stats['cluster_name']
-    for node_id in stats['nodes']:
-        node_stats = stats['nodes'][node_id]
-        NODES[node_id] = node_stats['name']
-        process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, NODES[node_id]), node_stats)
+    CLUSTER_NAME = health['cluster_name']
+    process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME), health)
     return metrics
 
+@timeit
 def process_node_disk_allocation(prefix, allocation, cluster_name):
     metrics = []
     for node_idx in range(len(allocation)):
@@ -84,6 +105,7 @@ def process_node_disk_allocation(prefix, allocation, cluster_name):
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'disk'), node_allocation)
     return metrics
 
+@timeit
 def process_node_memory_allocation(prefix, allocation, cluster_name):
     metrics = []
     for node_idx in range(len(allocation)):
@@ -93,6 +115,7 @@ def process_node_memory_allocation(prefix, allocation, cluster_name):
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'memory'), node_allocation)
     return metrics
 
+@timeit
 def process_node_load(prefix, load, cluster_name):
     metrics = []
     for node_idx in range(len(load)):
@@ -102,16 +125,23 @@ def process_node_load(prefix, load, cluster_name):
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'os'), node_load)
     return metrics
 
-def process_cluster_health(prefix, health):
+@timeit
+def process_thread_pool(prefix, load, cluster_name):
     metrics = []
-    process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME), health)
+    for thread_idx in range(len(load)):
+        thread_pool = load[thread_idx]
+        node_name = thread_pool['host']
+        thread_pool = {key: thread_pool[key] for key in thread_pool if key not in ['host']}
+        process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, node_name, 'thread_pool'), thread_pool)
     return metrics
 
+@timeit
 def process_indices_status(prefix, status):
     metrics = []
     process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, 'indices'), status['indices'])
     return metrics
     
+@timeit
 def process_indices_stats(prefix, stats):
     metrics = []
     process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, 'indices', '_all'), stats['_all'])
@@ -119,11 +149,13 @@ def process_indices_stats(prefix, stats):
         process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, 'indices'), stats['indices'])
     return metrics
     
+@timeit
 def process_segments_status(prefix, status):
     metrics = []
     process_section(int(time.time()), metrics, prefix, (CLUSTER_NAME, 'indices'), status['indices'])
     return metrics
     
+@timeit
 def process_section(timestamp, metrics, prefix, metric_path, section):
     for stat in section:
         stat_val = section[stat]
@@ -154,6 +186,7 @@ def process_section(timestamp, metrics, prefix, metric_path, section):
         else:
             add_metric(metrics, prefix, metric_path, stat, stat_val, timestamp)
 
+@timeit
 def submit_to_graphite(metrics):
     if not args.dry_run:
         graphite_socket = {'socket': socket.socket( socket.AF_INET, socket.SOCK_STREAM ), 
@@ -165,7 +198,8 @@ def submit_to_graphite(metrics):
     if args.protocol == 'pickle':
         if args.dry_run:
             for m, mval  in metrics:
-                log('%s %s = %s' % (mval[0], m, mval[1]), True)
+                if not args.silent:
+                    logging.info('%s %s = %s' % (mval[0], m, mval[1]))
         else:
             try:
                 payload = pickle.dumps(metrics)
@@ -178,7 +212,8 @@ def submit_to_graphite(metrics):
         for metric_name, metric_list in metrics:
             metric_string = "%s %s %d" % ( metric_name, metric_list[1], metric_list[0])
             if args.dry_run:
-                logging.info('Metric String: ' + metric_string)
+                if not args.silent:
+                    logging.info('Metric String: ' + metric_string)
             else:
                 try:
                     graphite_socket['socket'].send( "%s\n" % metric_string )
@@ -191,36 +226,9 @@ def submit_to_graphite(metrics):
     if not args.dry_run:
         graphite_socket['socket'].close()
 
- 
+@timeit
 def get_metrics():
     dt = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    node_stats_url = 'http://%s/_nodes?all=true' % get_es_host()
-    log('%s: GET %s' % (dt, node_stats_url))
-    node_stats_data = urllib2.urlopen(node_stats_url).read()
-    node_stats = json.loads(node_stats_data)
-    node_stats_metrics = process_node_stats(args.prefix, node_stats)
-    submit_to_graphite(node_stats_metrics)
-
-    node_disk_allocation_url = 'http://%s/_cat/allocation?format=json&bytes=b' % get_es_host()
-    log('%s: GET %s' % (dt, node_disk_allocation_url))
-    node_disk_allocation_data = urllib2.urlopen(node_disk_allocation_url).read()
-    node_disk_allocation = json.loads(node_disk_allocation_data)
-    node_disk_allocation_metrics = process_node_disk_allocation(args.prefix, node_disk_allocation, node_stats['cluster_name'])
-    submit_to_graphite(node_disk_allocation_metrics)
-
-    node_memory_allocation_url = 'http://%s/_cat/nodes?format=json&bytes=b&h=heapPercent,heapMax,ramPercent,ramMax,name' % get_es_host()
-    log('%s: GET %s' % (dt, node_memory_allocation_url))
-    node_memory_allocation_data = urllib2.urlopen(node_memory_allocation_url).read()
-    node_memory_allocation = json.loads(node_memory_allocation_data)
-    node_memory_allocation_metrics = process_node_memory_allocation(args.prefix, node_memory_allocation, node_stats['cluster_name'])
-    submit_to_graphite(node_memory_allocation_metrics)
-
-    node_load_url = 'http://%s/_cat/nodes?format=json&bytes=b&h=load,name' % get_es_host()
-    log('%s: GET %s' % (dt, node_load_url))
-    node_load_data = urllib2.urlopen(node_load_url).read()
-    node_load = json.loads(node_load_data)
-    node_load_metrics = process_node_load(args.prefix, node_load, node_stats['cluster_name'])
-    submit_to_graphite(node_load_metrics)
  
     cluster_health_url = 'http://%s/_cluster/health?level=%s' % (get_es_host(), args.health_level)
     log('%s: GET %s' % (dt, cluster_health_url))
@@ -228,6 +236,34 @@ def get_metrics():
     cluster_health = json.loads(cluster_health_data)
     cluster_health_metrics = process_cluster_health(args.prefix, cluster_health)
     submit_to_graphite(cluster_health_metrics)
+
+    node_disk_allocation_url = 'http://%s/_cat/allocation?format=json&bytes=b' % get_es_host()
+    log('%s: GET %s' % (dt, node_disk_allocation_url))
+    node_disk_allocation_data = urllib2.urlopen(node_disk_allocation_url).read()
+    node_disk_allocation = json.loads(node_disk_allocation_data)
+    node_disk_allocation_metrics = process_node_disk_allocation(args.prefix, node_disk_allocation, cluster_health['cluster_name'])
+    submit_to_graphite(node_disk_allocation_metrics)
+
+    node_memory_allocation_url = 'http://%s/_cat/nodes?format=json&bytes=b&h=heapPercent,heapMax,ramPercent,ramMax,name' % get_es_host()
+    log('%s: GET %s' % (dt, node_memory_allocation_url))
+    node_memory_allocation_data = urllib2.urlopen(node_memory_allocation_url).read()
+    node_memory_allocation = json.loads(node_memory_allocation_data)
+    node_memory_allocation_metrics = process_node_memory_allocation(args.prefix, node_memory_allocation, cluster_health['cluster_name'])
+    submit_to_graphite(node_memory_allocation_metrics)
+
+    node_load_url = 'http://%s/_cat/nodes?format=json&bytes=b&h=load,name' % get_es_host()
+    log('%s: GET %s' % (dt, node_load_url))
+    node_load_data = urllib2.urlopen(node_load_url).read()
+    node_load = json.loads(node_load_data)
+    node_load_metrics = process_node_load(args.prefix, node_load, cluster_health['cluster_name'])
+    submit_to_graphite(node_load_metrics)
+
+    thread_pool_url = 'http://%s/_cat/thread_pool?format=json&h=host,bulk.active,bulk.queue,bulk.rejected,index.active,index.queue,index.rejected,search.active,search.queue,search.rejected' % get_es_host()
+    log('%s: GET %s' % (dt, thread_pool_url))
+    thread_pool_data = urllib2.urlopen(thread_pool_url).read()
+    thread_pool = json.loads(thread_pool_data)
+    thread_pool_metrics = process_thread_pool(args.prefix, thread_pool, cluster_health['cluster_name'])
+    submit_to_graphite(thread_pool_metrics)
 
     indices_stats_url = 'http://%s/_stats?all=true' % get_es_host()
     if args.shard_stats:
@@ -258,6 +294,7 @@ if __name__ == '__main__':
     parser.add_argument('--health-level', choices=['cluster', 'indices', 'shards'], default='indices', help='The level of health metrics. Default: %(default)s')
     parser.add_argument('--log-level', choices=['info', 'warn', 'error', 'debug'], default='warn', help='The logging level. Default: %(default)s')
     parser.add_argument('--protocol', choices=['plaintext', 'pickle'], default='pickle', help='The graphite submission protocol. Default: %(default)s')
+    parser.add_argument('-s', '--silent', action='store_true', help='Silence metric printing to logs or stdout. Default: %(default)s')
     parser.add_argument('--stdout', action='store_true', help='output logging to stdout. Default: %(default)s')
     parser.add_argument('--shard-stats', action='store_true', help='Collect shard level stats metrics. Default: %(default)s')
     parser.add_argument('--segments', action='store_true', help='Collect low-level segment metrics. Default: %(default)s')
@@ -292,6 +329,9 @@ if __name__ == '__main__':
                 sys.exit()
             else:
                 get_metrics()
-                time.sleep(args.interval)
+                completion_minute = datetime.now().minute
+                while datetime.now().minute == completion_minute:
+                    logging.debug('Waiting to run.. (' + str(completion_minute) + ')')
+                    time.sleep(1)
         except Exception, e:
             logging.error(urllib.quote_plus(traceback.format_exc()))
